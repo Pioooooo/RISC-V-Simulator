@@ -3,4 +3,6 @@ project(RISC_V)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(RISC_V main.cpp Simulator.cpp Simulator.h)
+file(GLOB src ${PROJECT_SOURCE_DIR}/src/*.cpp)
+
+add_executable(RISC_V ${src})
