@@ -41,41 +41,51 @@ namespace RISCV
 		LB = 10,
 		LH = 11,
 		LW = 12,
-		LD = 13,
-		LBU = 14,
-		LHU = 15,
-		SB = 16,
-		SH = 17,
-		SW = 18,
-		SD = 19,
-		ADDI = 20,
-		SLTI = 21,
-		SLTIU = 22,
-		XORI = 23,
-		ORI = 24,
-		ANDI = 25,
-		SLLI = 26,
-		SRLI = 27,
-		SRAI = 28,
-		ADD = 29,
-		SUB = 30,
-		SLL = 31,
-		SLT = 32,
-		SLTU = 33,
-		XOR = 34,
-		SRL = 35,
-		SRA = 36,
-		OR = 37,
-		AND = 38,
-		UNKNOWN = -1;
+		LBU = 13,
+		LHU = 14,
+		SB = 15,
+		SH = 16,
+		SW = 17,
+		ADDI = 18,
+		SLTI = 19,
+		SLTIU = 20,
+		XORI = 21,
+		ORI = 22,
+		ANDI = 23,
+		SLLI = 24,
+		SRLI = 25,
+		SRAI = 26,
+		ADD = 27,
+		SUB = 28,
+		SLL = 29,
+		SLT = 30,
+		SLTU = 31,
+		XOR = 32,
+		SRL = 33,
+		SRA = 34,
+		OR = 35,
+		AND = 36,
+		UNKNOWN = -1
 	};
 
-
+	enum Stat
+	{
+		MEM_BYTE = 0x01,
+		MEM_HALF = 0x02,
+		MEM_WORD = 0x03,
+		MEM_LENGTH = 0x03,
+		MEM_SIGN = 0x04,
+		WRITE_REG = 0X08,
+		BRANCH = 0x10,
+		WRITE_MEM = 0x20,
+		READ_MEM = 0x40
+	};
 }
 
 class Simulator
 {
-	__uint32_t *reg, pc;
+	__uint32_t pc;
+	__int32_t *reg;
 
 	MemoryManager *memory;
 
@@ -95,12 +105,20 @@ class Simulator
 
 	struct datEX
 	{
-
+		RISCV::RegId rd;
+		RISCV::Inst inst;
+		__uint8_t stat;
+		__int32_t output, val;
+		__uint32_t pc;
 	} regEX;
 
 	struct datMEM
 	{
-
+		RISCV::RegId rd;
+		RISCV::Inst inst;
+		__int32_t output;
+		__uint32_t pc;
+		__uint8_t stat;
 	} regMEM;
 
 	struct datWB

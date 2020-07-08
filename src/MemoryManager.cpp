@@ -72,6 +72,20 @@ void MemoryManager::setByte(__uint32_t addr, __uint8_t val)
 	memory[i][j][k] = val;
 }
 
+void MemoryManager::setShort(__uint32_t addr, __uint16_t val)
+{
+	setByte(addr, val);
+	setByte(addr + 1, val >> 8u);
+}
+
+void MemoryManager::setInt(__uint32_t addr, __uint32_t val)
+{
+	setByte(addr, val);
+	setByte(addr + 1, val >> 8u);
+	setByte(addr + 2, val >> 16u);
+	setByte(addr + 3, val >> 24u);
+}
+
 __uint8_t MemoryManager::getByte(__uint32_t addr)
 {
 	if(!isAddrExist(addr))
@@ -82,7 +96,12 @@ __uint8_t MemoryManager::getByte(__uint32_t addr)
 	return memory[i][j][k];
 }
 
+__uint16_t MemoryManager::getShort(__uint32_t addr)
+{
+	return getByte(addr) + ((__uint16_t)getByte(addr + 1) << 8u);
+}
+
 __uint32_t MemoryManager::getInt(__uint32_t addr)
 {
-	return (__uint32_t)(getByte(addr)) + (getByte(addr + 1) << 8u) + (getByte(addr + 2) << 16u) + (getByte(addr + 3) << 24u);
+	return getByte(addr) + ((__uint32_t)getByte(addr + 1) << 8u) + ((__uint32_t)getByte(addr + 2) << 16u) + ((__uint32_t)getByte(addr + 3) << 24u);
 }

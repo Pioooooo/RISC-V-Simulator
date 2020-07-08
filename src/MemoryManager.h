@@ -32,7 +32,13 @@ public:
 
 	void setByte(__uint32_t addr, __uint8_t val);
 
+	void setShort(__uint32_t addr, __uint16_t val);
+
+	void setInt(__uint32_t addr, __uint32_t val);
+
 	__uint8_t getByte(__uint32_t addr);
+
+	__uint16_t getShort(__uint32_t addr);
 
 	__uint32_t getInt(__uint32_t addr);
 };
