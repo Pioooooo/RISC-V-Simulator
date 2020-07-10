@@ -3,13 +3,54 @@
 //
 
 #include "Simulator.h"
+#include "Debug.h"
 #include <string>
+
+namespace RISCV
+{
+	const char *REGNAME[32] = {"zero",  // x0
+							   "ra	",  // x1
+							   "sp	",  // x2
+							   "gp	",  // x3
+							   "tp	",  // x4
+							   "t0	",  // x5
+							   "t1	",  // x6
+							   "t2	",  // x7
+							   "s0	",  // x8
+							   "s1	",  // x9
+							   "a0	",  // x10
+							   "a1	",  // x11
+							   "a2	",  // x12
+							   "a3	",  // x13
+							   "a4	",  // x14
+							   "a5	",  // x15
+							   "a6	",  // x16
+							   "a7	",  // x17
+							   "s2	",  // x18
+							   "s3	",  // x19
+							   "s4  ",  // x20
+							   "s5  ",  // x21
+							   "s6  ",  // x22
+							   "s7  ",  // x23
+							   "s8  ",  // x24
+							   "s9  ",  // x25
+							   "s10 ",  // x26
+							   "s11 ",  // x27
+							   "t3  ",  // x28
+							   "t4  ",  // x29
+							   "t5  ",  // x30
+							   "t6  ",  // x31
+	};
+	const char *INSTNAME[] = {"lui  ", "auipc", "jal  ", "jalr ", "beq  ", "bne  ", "blt  ", "bge  ", "bltu ", "bgeu ", "lb   ", "lh   ",//
+							  "lw   ", "lbu  ", "lhu  ", "sb   ", "sh   ", "sw   ", "addi ", "slti ", "sltiu", "xori ", "ori  ", "andi ",//
+							  "slli ", "srli ", "srai ", "add  ", "sub  ", "sll  ", "slt  ", "sltu ", "xor  ", "srl  ", "sra  ", "or   ", "and  "};
+}
 
 using namespace RISCV;
 
-Simulator::Simulator(const char *fileName): reg(new __int32_t[32]), pc(0), memory(new MemoryManager()), regIF(), regID(), regEX(), regMEM(), regWB()
+Simulator::Simulator(FILE *data):
+		reg(new __int32_t[32]), pc(0), memory(new MemoryManager()), regIF(), regID(), regEX(), regMEM(), regWB()
 {
-	FILE *data(fopen(fileName, "r"));
 	char buf[20];
 	int cur = 0;
 	while(fscanf(data, " \n%s", buf) != EOF)
@@ -28,34 +69,13 @@ Simulator::~Simulator()
 	delete memory;
 }
 
-__uint32_t Simulator::stoi(char *str)
-{
-	__uint32_t ret = 0;
-	while(true)
-	{
-		if('0' <= *str && *str <= '9')
-		{
-			ret <<= 4u;
-			ret += *str - '0';
-		}
-		else if('A' <= *str && *str <= 'F')
-		{
-			ret <<= 4u;
-			ret += *str - 'A' + 10;
-		}
-		else
-			break;
-		str++;
-	}
-	return ret;
-}
-
 void Simulator::run()
 {
+	cycle = 0;
 	while(true)
 	{
 		IF();
-		if(regIF.inst == 0x00f00513)
+		if(regIF.inst == 0x0ff00513)
 		{
 			printf("%d", (__uint32_t)reg[10] & 0xffu);
 			break;
@@ -64,13 +84,15 @@ void Simulator::run()
 		EX();
 		MEM();
 		WB();
+		cycle++;
 	}
 }
 
 void Simulator::IF()
 {
 	regIF.inst = memory->getInt(pc);
-	pc += 4;
+	regIF.pc = pc + 4;
+	//DEBUG("Inst code: 0x%.8X", regIF.inst);
 }
 
 void Simulator::ID()
@@ -78,21 +100,22 @@ void Simulator::ID()
 	const __uint32_t &inst = regIF.inst;
 	Inst &instType = regID.inst = Inst::UNKNOWN;
 	RegId &dest = regID.rd = -1;
-	__int32_t &op1 = regID.op1 = 0, &op2 = regID.op2 = 0, &offset = regID.offset;
-
-
+	__int32_t &op1 = regID.op1 = 0, &op2 = regID.op2 = 0, &offset = regID.offset = 0;
+	regID.pc = regIF.pc;
+	
+	
 	__uint32_t opcode = inst & 0x7fu;
 	__uint32_t funct3 = (inst >> 12u) & 0x7u;
 	__uint32_t funct7 = (inst >> 25u) & 0x7fu;
 	RegId rd = (inst >> 7u) & 0x1fu;
 	RegId rs1 = (inst >> 15u) & 0x1fu;
 	RegId rs2 = (inst >> 20u) & 0x1fu;
-	__int32_t immI = ((__int32_t)inst >> 20) & 0xfff;
+	__int32_t immI = (__int32_t)((inst >> 20u) & 0xfffu) << 20 >> 20;
 	__int32_t immS = __int32_t(((inst >> 20u) & 0xfe0u) | ((inst >> 7u) & 0x1fu)) << 20 >> 20;
 	__int32_t immB = __int32_t(((inst >> 19u) & 0x1000u) | ((inst >> 20u) & 0x7e0u) | ((inst >> 7u) & 0x1eu) | ((inst << 4u) & 0x800u)) << 20 >> 20;
 	__int32_t immU = inst & 0xfffff000u;
-	__int32_t immJ = __int32_t(((inst >> 11u) & 0x80000u) | ((inst >> 20u) & 0xffeu) | ((inst >> 9u) & 0x800u) | (inst & 0xff000u)) << 11 >> 11;
-
+	__int32_t immJ = __int32_t(((inst >> 11u) & 0x100000u) | ((inst >> 20u) & 0x7feu) | ((inst >> 9u) & 0x800u) | (inst & 0xff000u)) << 11 >> 11;
+	
 	switch(opcode)
 	{
 	case OP_IMM:
@@ -118,16 +141,11 @@ void Simulator::ID()
 			instType = XORI;
 			break;
 		case 0b101:
+			op2 = rs2;
 			if(funct7 == 0x00)
-			{
 				instType = SRLI;
-				op2 = rs2;
-			}
 			else if(funct7 == 0x20)
-			{
 				instType = SRAI;
-				op2 = rs2;
-			}
 			break;
 		case 0b110:
 			instType = ORI;
@@ -158,7 +176,7 @@ void Simulator::ID()
 		case 0b000:
 			if(funct7 == 0x00)
 				instType = ADD;
-			else if(funct7 == 0x10)
+			else if(funct7 == 0x20)
 				instType = SUB;
 			break;
 		case 0b001:
@@ -176,7 +194,7 @@ void Simulator::ID()
 		case 0b101:
 			if(funct7 == 0x00)
 				instType = SRL;
-			else if(funct7 == 0x10)
+			else if(funct7 == 0x20)
 				instType = SRA;
 			break;
 		case 0b110:
@@ -274,16 +292,15 @@ void Simulator::ID()
 	default:
 		break;
 	}
+	DEBUG("cycle:%4d pc:0x%.8X dat:0x%.8X inst:%s op1:0x%.8X op2:0x%.8X offset:0x%.8X dest:%s rs1:%s rs2:%s", cycle, pc, inst, INSTNAME[instType], op1, op2, offset, REGNAME[rd], REGNAME[rs1], REGNAME[rs2]);
 }
 
 void Simulator::EX()
 {
 	Inst &inst = regID.inst;
-	__int32_t &op1 = regID.op1, &op2 = regID.op2, &offset = regID.offset, &output = regEX.output = 0, &val = regEX.val;
+	__int32_t &op1 = regID.op1, &op2 = regID.op2, &offset = regID.offset, &output = regEX.output = 0, &val = regEX.val, &pc = regEX.pc = regID.pc;;
 	__uint8_t &stat = regEX.stat = 0;
-	__uint32_t &pcEX = regEX.pc = pc;
 	regEX.rd = regID.rd;
-	regEX.inst = regID.inst;
 	switch(inst)
 	{
 	case LUI:
@@ -295,75 +312,76 @@ void Simulator::EX()
 		output = pc + op1;
 		break;
 	case JAL:
-		stat |= Stat::WRITE_REG | Stat::BRANCH;
-		output = pc + 4;
-		pcEX += op1;
+		stat |= Stat::WRITE_REG;
+		output = pc;
+		pc += op1 - 4;
 		break;
 	case JALR:
-		stat |= Stat::WRITE_REG | Stat::BRANCH;
-		output = (op1 + op2) & ~(__uint32_t)1;
+		stat |= Stat::WRITE_REG;
+		output = pc;
+		pc = (op1 + op2) & (~(__uint32_t)1);
 		break;
 	case BEQ:
 		if(op1 == op2)
 		{
 			stat |= Stat::BRANCH;
-			pcEX = pc + offset;
+			pc += offset - 4;
 		}
 		break;
 	case BNE:
 		if(op1 != op2)
 		{
 			stat |= Stat::BRANCH;
-			pcEX = pc + offset;
+			pc += offset - 4;
 		}
 		break;
 	case BLT:
 		if(op1 < op2)
 		{
 			stat |= Stat::BRANCH;
-			pcEX = pc + offset;
+			pc += offset - 4;
 		}
 		break;
 	case BGE:
 		if(op1 >= op2)
 		{
 			stat |= Stat::BRANCH;
-			pcEX = pc + offset;
+			pc += offset - 4;
 		}
 		break;
 	case BLTU:
 		if((__uint32_t)op1 < (__uint32_t)op2)
 		{
 			stat |= Stat::BRANCH;
-			pcEX = pc + offset;
+			pc += offset - 4;
 		}
 		break;
 	case BGEU:
 		if((__uint32_t)op1 >= (__uint32_t)op2)
 		{
 			stat |= Stat::BRANCH;
-			pcEX = pc + offset;
+			pc += offset - 4;
 		}
 		break;
 	case LB:
 		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_BYTE | Stat::MEM_SIGN;
-		output = op1 + offset;
+		output = op1 + op2;
 		break;
 	case LH:
 		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_HALF | Stat::MEM_SIGN;
-		output = op1 + offset;
+		output = op1 + op2;
 		break;
 	case LW:
 		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_WORD | Stat::MEM_SIGN;
-		output = op1 + offset;
+		output = op1 + op2;
 		break;
 	case LBU:
 		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_BYTE;
-		output = op1 + offset;
+		output = op1 + op2;
 		break;
 	case LHU:
 		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_HALF;
-		output = op1 + offset;
+		output = op1 + op2;
 		break;
 	case SB:
 		stat |= Stat::WRITE_MEM | Stat::MEM_BYTE;
@@ -437,12 +455,11 @@ void Simulator::EX()
 void Simulator::MEM()
 {
 	__uint8_t &stat = regEX.stat;
-	__int32_t &output = regEX.output, &val = regEX.val, &out = regMEM.output;
+	__int32_t &output = regMEM.output = regEX.output, &val = regEX.val;
 	regMEM.rd = regEX.rd;
-	regMEM.inst = regEX.inst;
-	regMEM.pc = regEX.pc;
 	regMEM.stat = regEX.stat;
-	if(stat | Stat::WRITE_MEM)
+	regMEM.pc = regEX.pc;
+	if(stat & Stat::WRITE_MEM)
 		switch(stat & Stat::MEM_LENGTH)
 		{
 		case Stat::MEM_BYTE:
@@ -457,26 +474,26 @@ void Simulator::MEM()
 		default:
 			break;
 		}
-	if(stat | Stat::READ_MEM)
+	if(stat & Stat::READ_MEM)
 		switch(stat & Stat::MEM_LENGTH)
 		{
 		case Stat::MEM_BYTE:
-			if(stat | Stat::MEM_SIGN)
-				out = (__int32_t)memory->getByte(output);
+			if(stat & Stat::MEM_SIGN)
+				output = (__int32_t)memory->getByte(output);
 			else
-				out = (__uint32_t)memory->getByte(output);
+				output = (__uint32_t)memory->getByte(output);
 			break;
 		case Stat::MEM_HALF:
-			if(stat | Stat::MEM_SIGN)
-				out = (__int32_t)memory->getShort(output);
+			if(stat & Stat::MEM_SIGN)
+				output = (__int32_t)memory->getShort(output);
 			else
-				out = (__uint32_t)memory->getShort(output);
+				output = (__uint32_t)memory->getShort(output);
 			break;
 		case Stat::MEM_WORD:
-			if(stat | Stat::MEM_SIGN)
-				out = (__int32_t)memory->getInt(output);
+			if(stat & Stat::MEM_SIGN)
+				output = (__int32_t)memory->getInt(output);
 			else
-				out = (__uint32_t)memory->getInt(output);
+				output = (__uint32_t)memory->getInt(output);
 			break;
 		default:
 			break;
@@ -488,7 +505,29 @@ void Simulator::WB()
 	RegId &rd = regMEM.rd;
 	__uint8_t &stat = regMEM.stat;
 	__int32_t &output = regMEM.output;
-	if(stat | Stat::WRITE_REG && rd)
+	if(stat & Stat::WRITE_REG && rd)
 		reg[rd] = output;
 	pc = regMEM.pc;
+}
+
+__uint32_t Simulator::stoi(char *str)
+{
+	__uint32_t ret = 0;
+	while(true)
+	{
+		if('0' <= *str && *str <= '9')
+		{
+			ret <<= 4u;
+			ret += *str - '0';
+		}
+		else if('A' <= *str && *str <= 'F')
+		{
+			ret <<= 4u;
+			ret += *str - 'A' + 10;
+		}
+		else
+			break;
+		str++;
+	}
+	return ret;
 }

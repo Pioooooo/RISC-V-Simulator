@@ -5,13 +5,13 @@
 
 int main(int argc, char **argv)
 {
-	char *fileName;
+	FILE *data;
 	if(argc == 2)
-		fileName = argv[1];
+		data = fopen(argv[1], "r");
 	else
-		return 0;
-	Simulator simulator(fileName);
+		data = stdin;
+	Simulator simulator(data);
 	simulator.run();
-
+	
 	return 0;
 }

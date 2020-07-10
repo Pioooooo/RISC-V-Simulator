@@ -8,11 +8,14 @@
 #include <cstdio>
 
 #include "MemoryManager.h"
+#include "Debug.h"
 
 namespace RISCV
 {
 	typedef __int32_t RegId;
-
+	
+	extern const char *REGNAME[], *INSTNAME[];
+	
 	enum OP
 	{
 		OP_IMM = 0x13,
@@ -25,7 +28,7 @@ namespace RISCV
 		OP_LOAD = 0x03,
 		OP_STORE = 0x23
 	};
-
+	
 	enum Inst
 	{
 		LUI = 0,
@@ -67,7 +70,7 @@ namespace RISCV
 		AND = 36,
 		UNKNOWN = -1
 	};
-
+	
 	enum Stat
 	{
 		MEM_BYTE = 0x01,
@@ -84,63 +87,59 @@ namespace RISCV
 
 class Simulator
 {
-	__uint32_t pc;
+	__uint32_t pc, cycle;
 	__int32_t *reg;
-
+	
 	MemoryManager *memory;
-
-	static __uint32_t stoi(char *str);
-
+	
 	struct datIF
 	{
-		__uint32_t inst;
+		__uint32_t inst, pc;
 	} regIF;
-
+	
 	struct datID
 	{
 		RISCV::RegId rd;
 		RISCV::Inst inst;
-		__int32_t op1, op2, offset;
+		__int32_t op1, op2, offset, pc;
 	} regID;
-
+	
 	struct datEX
 	{
 		RISCV::RegId rd;
-		RISCV::Inst inst;
 		__uint8_t stat;
-		__int32_t output, val;
-		__uint32_t pc;
+		__int32_t output, val, pc;
 	} regEX;
-
+	
 	struct datMEM
 	{
 		RISCV::RegId rd;
-		RISCV::Inst inst;
-		__int32_t output;
-		__uint32_t pc;
+		__int32_t output, pc;
 		__uint8_t stat;
 	} regMEM;
-
+	
 	struct datWB
 	{
-
+	
 	} regWB;
-
+	
 	void IF();
-
+	
 	void ID();
-
+	
 	void EX();
-
+	
 	void MEM();
-
+	
 	void WB();
+	
+	static __uint32_t stoi(char *str);
 
 public:
-	explicit Simulator(const char *fileName);
-
+	explicit Simulator(FILE *data);
+	
 	~Simulator();
-
+	
 	void run();
 };
 
