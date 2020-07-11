@@ -7,7 +7,8 @@
 
 #include <cstdio>
 
-#include "MemoryManager.h"
+#include "MemoryManagerLarge.h"
+#include "MemoryManagerSmall.h"
 #include "Debug.h"
 
 namespace RISCV

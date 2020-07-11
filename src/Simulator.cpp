@@ -49,7 +49,7 @@ namespace RISCV
 using namespace RISCV;
 
 Simulator::Simulator(FILE *data):
-		reg(new __int32_t[32]), pc(0), memory(new MemoryManager()), regIF(), regID(), regEX(), regMEM(), regWB()
+		reg(new __int32_t[32]), pc(0), memory(new MemoryManagerSmall()), regIF(), regID(), regEX(), regMEM(), regWB()
 {
 	char buf[20];
 	int cur = 0;
