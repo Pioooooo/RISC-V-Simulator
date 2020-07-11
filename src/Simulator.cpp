@@ -263,6 +263,7 @@ void Simulator::ID()
 			break;
 		case 0b100:
 			instType = LBU;
+			break;
 		case 0b101:
 			instType = LHU;
 			break;
@@ -292,7 +293,8 @@ void Simulator::ID()
 	default:
 		break;
 	}
-	DEBUG("cycle:%4d pc:0x%.8X dat:0x%.8X inst:%s op1:0x%.8X op2:0x%.8X offset:0x%.8X dest:%s rs1:%s rs2:%s", cycle, pc, inst, INSTNAME[instType], op1, op2, offset, REGNAME[rd], REGNAME[rs1], REGNAME[rs2]);
+	if(cycle <= 205)
+		DEBUG("cycle:%4d pc:0x%.8X dat:0x%.8X inst:%s op1:0x%.8X op2:0x%.8X offset:0x%.8X dest:%s rs1:%s rs2:%s", cycle, pc, inst, INSTNAME[instType], op1, op2, offset, REGNAME[rd], REGNAME[rs1], REGNAME[rs2]);
 }
 
 void Simulator::EX()

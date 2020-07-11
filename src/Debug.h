@@ -7,9 +7,9 @@
 
 #include <iostream>
 
-#define __DEBUG 1
+#define __DEBUG 0
 
 #define DEBUG(fmt, ...) \
-        do { if (__DEBUG) fprintf(stderr, "%s:%d\t" fmt "\n", __FILE__, __LINE__, __VA_ARGS__); } while (0)
+        do { if (__DEBUG) fprintf(stderr, fmt "\n", __VA_ARGS__); } while (0)
 
 #endif //RISC_V_DEBUG_H
