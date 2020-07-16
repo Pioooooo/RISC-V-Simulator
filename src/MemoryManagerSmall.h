@@ -16,7 +16,7 @@ class MemoryManagerSmall: public MemoryManager
 public:
 	MemoryManagerSmall();
 	
-	~MemoryManagerSmall() = default;
+	~MemoryManagerSmall() override = default;
 	
 	void setByte(__uint32_t addr, __uint8_t val) override;
 	

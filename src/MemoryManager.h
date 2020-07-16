@@ -12,7 +12,7 @@ class MemoryManager
 public:
 	MemoryManager() = default;
 	
-	~MemoryManager() = default;
+	virtual ~MemoryManager() = default;
 	
 	virtual void setByte(__uint32_t addr, __uint8_t val) = 0;
 	

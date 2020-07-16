@@ -10,6 +10,7 @@
 #include "MemoryManagerLarge.h"
 #include "MemoryManagerSmall.h"
 #include "Debug.h"
+#include "BranchPredictor.h"
 
 namespace RISCV
 {
@@ -80,49 +81,53 @@ namespace RISCV
 		MEM_LENGTH = 0x03,
 		MEM_SIGN = 0x04,
 		WRITE_REG = 0X08,
-		BRANCH = 0x10,
-		WRITE_MEM = 0x20,
-		READ_MEM = 0x40
+		WRITE_MEM = 0x10,
+		READ_MEM = 0x20,
+		TIME_ONE = 0x80,
+		TIME_TWO = 0x40,
+		TIME_THREE = 0x00,
+		TIME_DELTA = 0x40,
+		TIME_LENGTH = 0xC0
 	};
 }
 
 class Simulator
 {
-	__uint32_t pc, cycle;
+	__uint32_t pc, cycle{};
 	__int32_t *reg;
 	
 	MemoryManager *memory;
+	BranchPredictor *predictor;
 	
 	struct datIF
 	{
 		__uint32_t inst, pc;
+		bool busy;
 	} regIF;
 	
 	struct datID
 	{
 		RISCV::RegId rd;
 		RISCV::Inst inst;
-		__int32_t op1, op2, offset, pc;
+		__int32_t rs1, rs2, imm, pc;
+		bool busy, pred;
 	} regID;
 	
 	struct datEX
 	{
 		RISCV::RegId rd;
 		__uint8_t stat;
-		__int32_t output, val, pc;
+		__int32_t output, val;
+		bool busy;
 	} regEX;
 	
 	struct datMEM
 	{
 		RISCV::RegId rd;
-		__int32_t output, pc;
+		__int32_t output;
 		__uint8_t stat;
+		bool busy;
 	} regMEM;
-	
-	struct datWB
-	{
-	
-	} regWB;
 	
 	void IF();
 	
@@ -133,8 +138,6 @@ class Simulator
 	void MEM();
 	
 	void WB();
-	
-	static __uint32_t stoi(char *str);
 
 public:
 	explicit Simulator(FILE *data);

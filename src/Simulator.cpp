@@ -3,7 +3,6 @@
 //
 
 #include "Simulator.h"
-#include "Debug.h"
 #include <string>
 
 namespace RISCV
@@ -49,16 +48,16 @@ namespace RISCV
 using namespace RISCV;
 
 Simulator::Simulator(FILE *data):
-		reg(new __int32_t[32]), pc(0), memory(new MemoryManagerSmall()), regIF(), regID(), regEX(), regMEM(), regWB()
+		reg(new __int32_t[32]), pc(0), memory(new MemoryManagerSmall()), predictor(new BranchPredictor()), regIF(), regID(), regEX(), regMEM(), cycle(0)
 {
 	char buf[20];
-	int cur = 0;
+	__int32_t cur = 0;
 	while(fscanf(data, " \n%s", buf) != EOF)
 	{
 		if(buf[0] == '@')
-			cur = stoi(buf + 1);
+			cur = strtol(buf + 1, nullptr, 16);
 		else
-			memory->setByte(cur++, stoi(buf));
+			memory->setByte(cur++, strtol(buf, nullptr, 16));
 	}
 	fclose(data);
 }
@@ -67,43 +66,47 @@ Simulator::~Simulator()
 {
 	delete[] reg;
 	delete memory;
+	delete predictor;
 }
 
 void Simulator::run()
 {
 	cycle = 0;
-	while(true)
+	while(regIF.inst != 0xFF00513 || regIF.busy || regID.busy || regEX.busy || regMEM.busy)
 	{
-		IF();
-		if(regIF.inst == 0x0ff00513)
-		{
-			printf("%d", (__uint32_t)reg[10] & 0xffu);
-			break;
-		}
-		ID();
-		EX();
-		MEM();
 		WB();
+		MEM();
+		EX();
+		ID();
+		IF();
+		DEBUG("cycle:%4d pc:0x%.8X dat:0x%.8X inst:%s rs1:0x%.8X rs2:0x%.8X imm:0x%.8X dest:%s rs1:%s rs2:%s", cycle, pc - 4, regIF.inst, INSTNAME[regID.inst], regID.rs1, regID.rs2, regID.imm, REGNAME[regID.rd], REGNAME[regID.rs1], REGNAME[regID.rs2]);
 		cycle++;
 	}
+	printf("%d", (__uint32_t)reg[10] & 0xffu);
 }
 
 void Simulator::IF()
 {
+	if(regIF.busy)
+		return;
 	regIF.inst = memory->getInt(pc);
-	regIF.pc = pc + 4;
+	if(regIF.inst == 0x0ff00513)
+		return;
+	regIF.pc = pc;
+	pc += 4;
+	regIF.busy = true;
 	//DEBUG("Inst code: 0x%.8X", regIF.inst);
 }
 
 void Simulator::ID()
 {
+	if(!regIF.busy || regID.busy)
+		return;
 	const __uint32_t &inst = regIF.inst;
-	Inst &instType = regID.inst = Inst::UNKNOWN;
+	Inst &instType = regID.inst = UNKNOWN;
 	RegId &dest = regID.rd = -1;
-	__int32_t &op1 = regID.op1 = 0, &op2 = regID.op2 = 0, &offset = regID.offset = 0;
+	__int32_t &op1 = regID.rs1 = 0, &op2 = regID.rs2 = 0, &imm = regID.imm = 0;
 	regID.pc = regIF.pc;
-	
-	
 	__uint32_t opcode = inst & 0x7fu;
 	__uint32_t funct3 = (inst >> 12u) & 0x7u;
 	__uint32_t funct7 = (inst >> 25u) & 0x7fu;
@@ -115,12 +118,11 @@ void Simulator::ID()
 	__int32_t immB = __int32_t(((inst >> 19u) & 0x1000u) | ((inst >> 20u) & 0x7e0u) | ((inst >> 7u) & 0x1eu) | ((inst << 4u) & 0x800u)) << 20 >> 20;
 	__int32_t immU = inst & 0xfffff000u;
 	__int32_t immJ = __int32_t(((inst >> 11u) & 0x100000u) | ((inst >> 20u) & 0x7feu) | ((inst >> 9u) & 0x800u) | (inst & 0xff000u)) << 11 >> 11;
-	
 	switch(opcode)
 	{
 	case OP_IMM:
-		op1 = reg[rs1];
-		op2 = immI;
+		op1 = rs1;
+		imm = immI;
 		dest = rd;
 		switch(funct3)
 		{
@@ -129,7 +131,7 @@ void Simulator::ID()
 			break;
 		case 0b001:
 			instType = SLLI;
-			op2 = rs2;
+			imm = rs2;
 			break;
 		case 0b010:
 			instType = SLTI;
@@ -141,7 +143,7 @@ void Simulator::ID()
 			instType = XORI;
 			break;
 		case 0b101:
-			op2 = rs2;
+			imm = rs2;
 			if(funct7 == 0x00)
 				instType = SRLI;
 			else if(funct7 == 0x20)
@@ -158,18 +160,18 @@ void Simulator::ID()
 		}
 		break;
 	case OP_LUI:
-		op1 = immU;
+		imm = immU;
 		dest = rd;
 		instType = LUI;
 		break;
 	case OP_AUIPC:
-		op1 = immU;
+		imm = immU;
 		dest = rd;
 		instType = AUIPC;
 		break;
 	case OP_OP:
-		op1 = reg[rs1];
-		op2 = reg[rs2];
+		op1 = rs1;
+		op2 = rs2;
 		dest = rd;
 		switch(funct3)
 		{
@@ -208,20 +210,21 @@ void Simulator::ID()
 		}
 		break;
 	case OP_JAL:
-		op1 = immJ;
+		imm = immJ;
 		dest = rd;
 		instType = JAL;
+		pc = regIF.pc + imm;
 		break;
 	case OP_JALR:
-		op1 = reg[rs1];
-		op2 = immI;
+		op1 = rs1;
+		imm = immI;
 		dest = rd;
 		instType = JALR;
 		break;
 	case OP_BRANCH:
-		op1 = reg[rs1];
-		op2 = reg[rs2];
-		offset = immB;
+		op1 = rs1;
+		op2 = rs2;
+		imm = immB;
 		switch(funct3)
 		{
 		case 0b000:
@@ -245,10 +248,15 @@ void Simulator::ID()
 		default:
 			break;
 		}
+		regID.pred = predictor->predict(regIF.pc);
+		if(regID.pred)
+			pc = regID.pc + imm;
+		else
+			pc = regID.pc + 4;
 		break;
 	case OP_LOAD:
-		op1 = reg[rs1];
-		op2 = immI;
+		op1 = rs1;
+		imm = immI;
 		dest = rd;
 		switch(funct3)
 		{
@@ -272,9 +280,9 @@ void Simulator::ID()
 		}
 		break;
 	case OP_STORE:
-		op1 = reg[rs1];
-		op2 = reg[rs2];
-		offset = immS;
+		op1 = rs1;
+		op2 = rs2;
+		imm = immS;
 		switch(funct3)
 		{
 		case 0b000:
@@ -293,206 +301,296 @@ void Simulator::ID()
 	default:
 		break;
 	}
-	if(cycle <= 205)
-		DEBUG("cycle:%4d pc:0x%.8X dat:0x%.8X inst:%s op1:0x%.8X op2:0x%.8X offset:0x%.8X dest:%s rs1:%s rs2:%s", cycle, pc, inst, INSTNAME[instType], op1, op2, offset, REGNAME[rd], REGNAME[rs1], REGNAME[rs2]);
+	if((op1 && regEX.busy && regEX.rd == op1 && regEX.stat & READ_MEM) || (op2 && regEX.busy && regEX.rd == op2 && regEX.stat & READ_MEM))
+		return;
+	if(op1)
+	{
+		if(regEX.busy && regEX.rd == op1 && !(regEX.stat & READ_MEM))
+			op1 = regEX.output;
+		else if(regMEM.busy && regMEM.rd == op1)
+			op1 = regMEM.output;
+		else
+			op1 = reg[op1];
+	}
+	if(op2)
+	{
+		if(regEX.busy && regEX.rd == op2 && !(regEX.stat & READ_MEM))
+			op2 = regEX.output;
+		else if(regMEM.busy && regMEM.rd == op2)
+			op2 = regMEM.output;
+		else
+			op2 = reg[op2];
+	}
+	if(instType == JALR)
+		pc = (op1 + imm) & (~(__uint32_t)1);
+	regID.busy = true;
+	regIF.busy = false;
 }
 
 void Simulator::EX()
 {
+	if(!regID.busy || regEX.busy)
+		return;
 	Inst &inst = regID.inst;
-	__int32_t &op1 = regID.op1, &op2 = regID.op2, &offset = regID.offset, &output = regEX.output = 0, &val = regEX.val, &pc = regEX.pc = regID.pc;;
+	__int32_t &op1 = regID.rs1, &op2 = regID.rs2, &imm = regID.imm, &output = regEX.output = 0, &val = regEX.val;
 	__uint8_t &stat = regEX.stat = 0;
 	regEX.rd = regID.rd;
 	switch(inst)
 	{
 	case LUI:
-		stat |= Stat::WRITE_REG;
-		output = op1;
+		stat |= WRITE_REG;
+		output = imm;
 		break;
 	case AUIPC:
-		stat |= Stat::WRITE_REG;
-		output = pc + op1;
+		stat |= WRITE_REG;
+		output = regID.pc + imm;
 		break;
 	case JAL:
-		stat |= Stat::WRITE_REG;
-		output = pc;
-		pc += op1 - 4;
+		stat |= WRITE_REG;
+		output = regID.pc + 4;
 		break;
 	case JALR:
-		stat |= Stat::WRITE_REG;
-		output = pc;
-		pc = (op1 + op2) & (~(__uint32_t)1);
+		stat |= WRITE_REG;
+		output = regID.pc + 4;
 		break;
 	case BEQ:
-		if(op1 == op2)
+		predictor->update(regID.pc, op1 == op2);
+		if(op1 == op2 && !regID.pred)
 		{
-			stat |= Stat::BRANCH;
-			pc += offset - 4;
+			pc = regID.pc + regID.imm;
+			regIF.busy = false;
+		}
+		else if(op1 != op2 && regID.pred)
+		{
+			pc = regID.pc + 4;
+			regIF.busy = false;
 		}
 		break;
 	case BNE:
-		if(op1 != op2)
+		if(op1 != op2 && !regID.pred)
 		{
-			stat |= Stat::BRANCH;
-			pc += offset - 4;
+			pc = regID.pc + regID.imm;
+			regIF.busy = false;
+		}
+		else if(op1 == op2 && regID.pred)
+		{
+			pc = regID.pc + 4;
+			regIF.busy = false;
 		}
 		break;
 	case BLT:
-		if(op1 < op2)
+		if(op1 < op2 && !regID.pred)
 		{
-			stat |= Stat::BRANCH;
-			pc += offset - 4;
+			pc = regID.pc + regID.imm;
+			regIF.busy = false;
+		}
+		else if(op1 >= op2 && regID.pred)
+		{
+			pc = regID.pc + 4;
+			regIF.busy = false;
 		}
 		break;
 	case BGE:
-		if(op1 >= op2)
+		if(op1 >= op2 && !regID.pred)
 		{
-			stat |= Stat::BRANCH;
-			pc += offset - 4;
+			pc = regID.pc + regID.imm;
+			regIF.busy = false;
+		}
+		else if(op1 < op2 && regID.pred)
+		{
+			pc = regID.pc + 4;
+			regIF.busy = false;
 		}
 		break;
 	case BLTU:
-		if((__uint32_t)op1 < (__uint32_t)op2)
+		if((__uint32_t)op1 < (__uint32_t)op2 && !regID.pred)
 		{
-			stat |= Stat::BRANCH;
-			pc += offset - 4;
+			pc = regID.pc + regID.imm;
+			regIF.busy = false;
+		}
+		else if((__uint32_t)op1 >= (__uint32_t)op2 && regID.pred)
+		{
+			pc = regID.pc + 4;
+			regIF.busy = false;
 		}
 		break;
 	case BGEU:
-		if((__uint32_t)op1 >= (__uint32_t)op2)
+		if((__uint32_t)op1 >= (__uint32_t)op2 && !regID.pred)
 		{
-			stat |= Stat::BRANCH;
-			pc += offset - 4;
+			pc = regID.pc + regID.imm;
+			regIF.busy = false;
+		}
+		else if((__uint32_t)op1 < (__uint32_t)op2 && regID.pred)
+		{
+			pc = regID.pc + 4;
+			regIF.busy = false;
 		}
 		break;
 	case LB:
-		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_BYTE | Stat::MEM_SIGN;
-		output = op1 + op2;
+		stat |= WRITE_REG | READ_MEM | MEM_BYTE | MEM_SIGN;
+		output = op1 + imm;
 		break;
 	case LH:
-		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_HALF | Stat::MEM_SIGN;
-		output = op1 + op2;
+		stat |= WRITE_REG | READ_MEM | MEM_HALF | MEM_SIGN;
+		output = op1 + imm;
 		break;
 	case LW:
-		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_WORD | Stat::MEM_SIGN;
-		output = op1 + op2;
+		stat |= WRITE_REG | READ_MEM | MEM_WORD | MEM_SIGN;
+		output = op1 + imm;
 		break;
 	case LBU:
-		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_BYTE;
-		output = op1 + op2;
+		stat |= WRITE_REG | READ_MEM | MEM_BYTE;
+		output = op1 + imm;
 		break;
 	case LHU:
-		stat |= Stat::WRITE_REG | Stat::READ_MEM | Stat::MEM_HALF;
-		output = op1 + op2;
+		stat |= WRITE_REG | READ_MEM | MEM_HALF;
+		output = op1 + imm;
 		break;
 	case SB:
-		stat |= Stat::WRITE_MEM | Stat::MEM_BYTE;
-		output = op1 + offset;
+		stat |= WRITE_MEM | MEM_BYTE;
+		output = op1 + imm;
 		val = op2;
 		break;
 	case SH:
-		stat |= Stat::WRITE_MEM | Stat::MEM_HALF;
-		output = op1 + offset;
+		stat |= WRITE_MEM | MEM_HALF;
+		output = op1 + imm;
 		val = op2;
 		break;
 	case SW:
-		stat |= Stat::WRITE_MEM | Stat::MEM_WORD;
-		output = op1 + offset;
+		stat |= WRITE_MEM | MEM_WORD;
+		output = op1 + imm;
 		val = op2;
 		break;
 	case ADD:
-	case ADDI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 + op2;
 		break;
+	case ADDI:
+		stat |= WRITE_REG;
+		output = op1 + imm;
+		break;
 	case SLT:
-	case SLTI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 < op2 ? 1 : 0;
 		break;
+	case SLTI:
+		stat |= WRITE_REG;
+		output = op1 < imm ? 1 : 0;
+		break;
 	case SLTU:
-	case SLTIU:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = (__uint32_t)op1 < (__uint32_t)op2 ? 1 : 0;
 		break;
+	case SLTIU:
+		stat |= WRITE_REG;
+		output = (__uint32_t)op1 < (__uint32_t)imm ? 1 : 0;
+		break;
 	case XOR:
-	case XORI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 ^ op2;
 		break;
+	case XORI:
+		stat |= WRITE_REG;
+		output = op1 ^ imm;
+		break;
 	case OR:
-	case ORI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 | op2;
 		break;
+	case ORI:
+		stat |= WRITE_REG;
+		output = op1 | imm;
+		break;
 	case AND:
-	case ANDI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 & op2;
 		break;
+	case ANDI:
+		stat |= WRITE_REG;
+		output = op1 & imm;
+		break;
 	case SLL:
-	case SLLI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 << op2;
 		break;
+	case SLLI:
+		stat |= WRITE_REG;
+		output = op1 << imm;
+		break;
 	case SRL:
-	case SRLI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = (__uint32_t)op1 >> op2;
 		break;
+	case SRLI:
+		stat |= WRITE_REG;
+		output = (__uint32_t)op1 >> imm;
+		break;
 	case SRA:
-	case SRAI:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 >> op2;
 		break;
+	case SRAI:
+		stat |= WRITE_REG;
+		output = op1 >> imm;
+		break;
 	case SUB:
-		stat |= Stat::WRITE_REG;
+		stat |= WRITE_REG;
 		output = op1 - op2;
 		break;
 	default:
 		break;
 	}
+	regEX.stat &= ~TIME_LENGTH;
+	regEX.stat |= TIME_ONE;
+	regID.busy = false;
+	regEX.busy = true;
 }
 
 void Simulator::MEM()
 {
+	if(!regEX.busy || regMEM.busy)
+		return;
 	__uint8_t &stat = regEX.stat;
+	if((stat & WRITE_MEM || stat & READ_MEM) && (stat & TIME_LENGTH) > TIME_THREE)
+	{
+		stat -= TIME_DELTA;
+		return;
+	}
 	__int32_t &output = regMEM.output = regEX.output, &val = regEX.val;
 	regMEM.rd = regEX.rd;
 	regMEM.stat = regEX.stat;
-	regMEM.pc = regEX.pc;
-	if(stat & Stat::WRITE_MEM)
-		switch(stat & Stat::MEM_LENGTH)
+	if(stat & WRITE_MEM)
+		switch(stat & MEM_LENGTH)
 		{
-		case Stat::MEM_BYTE:
+		case MEM_BYTE:
 			memory->setByte(output, val);
 			break;
-		case Stat::MEM_HALF:
+		case MEM_HALF:
 			memory->setShort(output, val);
 			break;
-		case Stat::MEM_WORD:
+		case MEM_WORD:
 			memory->setInt(output, val);
 			break;
 		default:
 			break;
 		}
-	if(stat & Stat::READ_MEM)
-		switch(stat & Stat::MEM_LENGTH)
+	if(stat & READ_MEM)
+		switch(stat & MEM_LENGTH)
 		{
-		case Stat::MEM_BYTE:
-			if(stat & Stat::MEM_SIGN)
+		case MEM_BYTE:
+			if(stat & MEM_SIGN)
 				output = (__int32_t)memory->getByte(output);
 			else
 				output = (__uint32_t)memory->getByte(output);
 			break;
-		case Stat::MEM_HALF:
-			if(stat & Stat::MEM_SIGN)
+		case MEM_HALF:
+			if(stat & MEM_SIGN)
 				output = (__int32_t)memory->getShort(output);
 			else
 				output = (__uint32_t)memory->getShort(output);
 			break;
-		case Stat::MEM_WORD:
-			if(stat & Stat::MEM_SIGN)
+		case MEM_WORD:
+			if(stat & MEM_SIGN)
 				output = (__int32_t)memory->getInt(output);
 			else
 				output = (__uint32_t)memory->getInt(output);
@@ -500,36 +598,19 @@ void Simulator::MEM()
 		default:
 			break;
 		}
+	regEX.busy = false;
+	regMEM.busy = true;
 }
 
 void Simulator::WB()
 {
+	if(!regMEM.busy)
+		return;
 	RegId &rd = regMEM.rd;
 	__uint8_t &stat = regMEM.stat;
 	__int32_t &output = regMEM.output;
-	if(stat & Stat::WRITE_REG && rd)
+	if(stat & WRITE_REG && rd)
 		reg[rd] = output;
-	pc = regMEM.pc;
+	regMEM.busy = false;
 }
 
-__uint32_t Simulator::stoi(char *str)
-{
-	__uint32_t ret = 0;
-	while(true)
-	{
-		if('0' <= *str && *str <= '9')
-		{
-			ret <<= 4u;
-			ret += *str - '0';
-		}
-		else if('A' <= *str && *str <= 'F')
-		{
-			ret <<= 4u;
-			ret += *str - 'A' + 10;
-		}
-		else
-			break;
-		str++;
-	}
-	return ret;
-}

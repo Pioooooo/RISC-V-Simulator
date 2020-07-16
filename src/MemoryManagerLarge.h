@@ -29,7 +29,7 @@ class MemoryManagerLarge: public MemoryManager
 public:
 	MemoryManagerLarge();
 	
-	~MemoryManagerLarge();
+	~MemoryManagerLarge() override;
 	
 	void setByte(__uint32_t addr, __uint8_t val) override;
 	
