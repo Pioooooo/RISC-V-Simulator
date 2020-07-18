@@ -4,6 +4,7 @@
 
 #include "Simulator.h"
 #include <string>
+#include <cstdio>
 
 namespace RISCV
 {
@@ -82,7 +83,8 @@ void Simulator::run()
 		DEBUG("cycle:%4d pc:0x%.8X dat:0x%.8X inst:%s rs1:0x%.8X rs2:0x%.8X imm:0x%.8X dest:%s rs1:%s rs2:%s", cycle, pc - 4, regIF.inst, INSTNAME[regID.inst], regID.rs1, regID.rs2, regID.imm, REGNAME[regID.rd], REGNAME[regID.rs1], REGNAME[regID.rs2]);
 		cycle++;
 	}
-	printf("%d", (__uint32_t)reg[10] & 0xffu);
+	printf("%d\n", (__uint32_t)reg[10] & 0xffu);
+	predictor->print(stderr);
 }
 
 void Simulator::IF()
@@ -102,207 +104,216 @@ void Simulator::ID()
 {
 	if(!regIF.busy || regID.busy)
 		return;
-	const __uint32_t &inst = regIF.inst;
-	Inst &instType = regID.inst = UNKNOWN;
-	RegId &dest = regID.rd = -1;
-	__int32_t &op1 = regID.rs1 = 0, &op2 = regID.rs2 = 0, &imm = regID.imm = 0;
-	regID.pc = regIF.pc;
-	__uint32_t opcode = inst & 0x7fu;
-	__uint32_t funct3 = (inst >> 12u) & 0x7u;
-	__uint32_t funct7 = (inst >> 25u) & 0x7fu;
-	RegId rd = (inst >> 7u) & 0x1fu;
-	RegId rs1 = (inst >> 15u) & 0x1fu;
-	RegId rs2 = (inst >> 20u) & 0x1fu;
-	__int32_t immI = (__int32_t)((inst >> 20u) & 0xfffu) << 20 >> 20;
-	__int32_t immS = __int32_t(((inst >> 20u) & 0xfe0u) | ((inst >> 7u) & 0x1fu)) << 20 >> 20;
-	__int32_t immB = __int32_t(((inst >> 19u) & 0x1000u) | ((inst >> 20u) & 0x7e0u) | ((inst >> 7u) & 0x1eu) | ((inst << 4u) & 0x800u)) << 20 >> 20;
-	__int32_t immU = inst & 0xfffff000u;
-	__int32_t immJ = __int32_t(((inst >> 11u) & 0x100000u) | ((inst >> 20u) & 0x7feu) | ((inst >> 9u) & 0x800u) | (inst & 0xff000u)) << 11 >> 11;
-	switch(opcode)
+	Inst &instType = regID.inst;
+	__int32_t &op1 = regID.rs1, &op2 = regID.rs2, &imm = regID.imm;
+	if(!regID.stall)
 	{
-	case OP_IMM:
-		op1 = rs1;
-		imm = immI;
-		dest = rd;
-		switch(funct3)
+		const __uint32_t &inst = regIF.inst;
+		instType = UNKNOWN;
+		RegId &dest = regID.rd = -1;
+		op1 = op2 = imm = 0;
+		regID.pc = regIF.pc;
+		regID.stall = false;
+		__uint32_t opcode = inst & 0x7fu;
+		__uint32_t funct3 = (inst >> 12u) & 0x7u;
+		__uint32_t funct7 = (inst >> 25u) & 0x7fu;
+		RegId rd = (inst >> 7u) & 0x1fu;
+		RegId rs1 = (inst >> 15u) & 0x1fu;
+		RegId rs2 = (inst >> 20u) & 0x1fu;
+		__int32_t immI = (__int32_t)((inst >> 20u) & 0xfffu) << 20 >> 20;
+		__int32_t immS = __int32_t(((inst >> 20u) & 0xfe0u) | ((inst >> 7u) & 0x1fu)) << 20 >> 20;
+		__int32_t immB = __int32_t(((inst >> 19u) & 0x1000u) | ((inst >> 20u) & 0x7e0u) | ((inst >> 7u) & 0x1eu) | ((inst << 4u) & 0x800u)) << 20 >> 20;
+		__int32_t immU = inst & 0xfffff000u;
+		__int32_t immJ = __int32_t(((inst >> 11u) & 0x100000u) | ((inst >> 20u) & 0x7feu) | ((inst >> 9u) & 0x800u) | (inst & 0xff000u)) << 11 >> 11;
+		switch(opcode)
 		{
-		case 0b000:
-			instType = ADDI;
+		case OP_IMM:
+			op1 = rs1;
+			imm = immI;
+			dest = rd;
+			switch(funct3)
+			{
+			case 0b000:
+				instType = ADDI;
+				break;
+			case 0b001:
+				instType = SLLI;
+				imm = rs2;
+				break;
+			case 0b010:
+				instType = SLTI;
+				break;
+			case 0b011:
+				instType = SLTIU;
+				break;
+			case 0b100:
+				instType = XORI;
+				break;
+			case 0b101:
+				imm = rs2;
+				if(funct7 == 0x00)
+					instType = SRLI;
+				else if(funct7 == 0x20)
+					instType = SRAI;
+				break;
+			case 0b110:
+				instType = ORI;
+				break;
+			case 0b111:
+				instType = ANDI;
+				break;
+			default:
+				break;
+			}
 			break;
-		case 0b001:
-			instType = SLLI;
-			imm = rs2;
+		case OP_LUI:
+			imm = immU;
+			dest = rd;
+			instType = LUI;
 			break;
-		case 0b010:
-			instType = SLTI;
+		case OP_AUIPC:
+			imm = immU;
+			dest = rd;
+			instType = AUIPC;
 			break;
-		case 0b011:
-			instType = SLTIU;
+		case OP_OP:
+			op1 = rs1;
+			op2 = rs2;
+			dest = rd;
+			switch(funct3)
+			{
+			case 0b000:
+				if(funct7 == 0x00)
+					instType = ADD;
+				else if(funct7 == 0x20)
+					instType = SUB;
+				break;
+			case 0b001:
+				instType = SLL;
+				break;
+			case 0b010:
+				instType = SLT;
+				break;
+			case 0b011:
+				instType = SLTU;
+				break;
+			case 0b100:
+				instType = XOR;
+				break;
+			case 0b101:
+				if(funct7 == 0x00)
+					instType = SRL;
+				else if(funct7 == 0x20)
+					instType = SRA;
+				break;
+			case 0b110:
+				instType = OR;
+				break;
+			case 0b111:
+				instType = AND;
+				break;
+			default:
+				break;
+			}
 			break;
-		case 0b100:
-			instType = XORI;
+		case OP_JAL:
+			imm = immJ;
+			dest = rd;
+			instType = JAL;
+			pc = regIF.pc + imm;
 			break;
-		case 0b101:
-			imm = rs2;
-			if(funct7 == 0x00)
-				instType = SRLI;
-			else if(funct7 == 0x20)
-				instType = SRAI;
+		case OP_JALR:
+			op1 = rs1;
+			imm = immI;
+			dest = rd;
+			instType = JALR;
 			break;
-		case 0b110:
-			instType = ORI;
+		case OP_BRANCH:
+			op1 = rs1;
+			op2 = rs2;
+			imm = immB;
+			switch(funct3)
+			{
+			case 0b000:
+				instType = BEQ;
+				break;
+			case 0b001:
+				instType = BNE;
+				break;
+			case 0b100:
+				instType = BLT;
+				break;
+			case 0b101:
+				instType = BGE;
+				break;
+			case 0b110:
+				instType = BLTU;
+				break;
+			case 0b111:
+				instType = BGEU;
+				break;
+			default:
+				break;
+			}
+			regID.pred = predictor->predict(regIF.pc);
+			if(regID.pred)
+				pc = regID.pc + imm;
+			else
+				pc = regID.pc + 4;
 			break;
-		case 0b111:
-			instType = ANDI;
+		case OP_LOAD:
+			op1 = rs1;
+			imm = immI;
+			dest = rd;
+			switch(funct3)
+			{
+			case 0b000:
+				instType = LB;
+				break;
+			case 0b001:
+				instType = LH;
+				break;
+			case 0b010:
+				instType = LW;
+				break;
+			case 0b100:
+				instType = LBU;
+				break;
+			case 0b101:
+				instType = LHU;
+				break;
+			default:
+				break;
+			}
+			break;
+		case OP_STORE:
+			op1 = rs1;
+			op2 = rs2;
+			imm = immS;
+			switch(funct3)
+			{
+			case 0b000:
+				instType = SB;
+				break;
+			case 0b001:
+				instType = SH;
+				break;
+			case 0b010:
+				instType = SW;
+				break;
+			default:
+				break;
+			}
 			break;
 		default:
 			break;
 		}
-		break;
-	case OP_LUI:
-		imm = immU;
-		dest = rd;
-		instType = LUI;
-		break;
-	case OP_AUIPC:
-		imm = immU;
-		dest = rd;
-		instType = AUIPC;
-		break;
-	case OP_OP:
-		op1 = rs1;
-		op2 = rs2;
-		dest = rd;
-		switch(funct3)
-		{
-		case 0b000:
-			if(funct7 == 0x00)
-				instType = ADD;
-			else if(funct7 == 0x20)
-				instType = SUB;
-			break;
-		case 0b001:
-			instType = SLL;
-			break;
-		case 0b010:
-			instType = SLT;
-			break;
-		case 0b011:
-			instType = SLTU;
-			break;
-		case 0b100:
-			instType = XOR;
-			break;
-		case 0b101:
-			if(funct7 == 0x00)
-				instType = SRL;
-			else if(funct7 == 0x20)
-				instType = SRA;
-			break;
-		case 0b110:
-			instType = OR;
-			break;
-		case 0b111:
-			instType = AND;
-			break;
-		default:
-			break;
-		}
-		break;
-	case OP_JAL:
-		imm = immJ;
-		dest = rd;
-		instType = JAL;
-		pc = regIF.pc + imm;
-		break;
-	case OP_JALR:
-		op1 = rs1;
-		imm = immI;
-		dest = rd;
-		instType = JALR;
-		break;
-	case OP_BRANCH:
-		op1 = rs1;
-		op2 = rs2;
-		imm = immB;
-		switch(funct3)
-		{
-		case 0b000:
-			instType = BEQ;
-			break;
-		case 0b001:
-			instType = BNE;
-			break;
-		case 0b100:
-			instType = BLT;
-			break;
-		case 0b101:
-			instType = BGE;
-			break;
-		case 0b110:
-			instType = BLTU;
-			break;
-		case 0b111:
-			instType = BGEU;
-			break;
-		default:
-			break;
-		}
-		regID.pred = predictor->predict(regIF.pc);
-		if(regID.pred)
-			pc = regID.pc + imm;
-		else
-			pc = regID.pc + 4;
-		break;
-	case OP_LOAD:
-		op1 = rs1;
-		imm = immI;
-		dest = rd;
-		switch(funct3)
-		{
-		case 0b000:
-			instType = LB;
-			break;
-		case 0b001:
-			instType = LH;
-			break;
-		case 0b010:
-			instType = LW;
-			break;
-		case 0b100:
-			instType = LBU;
-			break;
-		case 0b101:
-			instType = LHU;
-			break;
-		default:
-			break;
-		}
-		break;
-	case OP_STORE:
-		op1 = rs1;
-		op2 = rs2;
-		imm = immS;
-		switch(funct3)
-		{
-		case 0b000:
-			instType = SB;
-			break;
-		case 0b001:
-			instType = SH;
-			break;
-		case 0b010:
-			instType = SW;
-			break;
-		default:
-			break;
-		}
-		break;
-	default:
-		break;
 	}
 	if((op1 && regEX.busy && regEX.rd == op1 && regEX.stat & READ_MEM) || (op2 && regEX.busy && regEX.rd == op2 && regEX.stat & READ_MEM))
+	{
+		regID.stall = true;
 		return;
+	}
 	if(op1)
 	{
 		if(regEX.busy && regEX.rd == op1 && !(regEX.stat & READ_MEM))
@@ -324,6 +335,7 @@ void Simulator::ID()
 	if(instType == JALR)
 		pc = (op1 + imm) & (~(__uint32_t)1);
 	regID.busy = true;
+	regID.stall = false;
 	regIF.busy = false;
 }
 
@@ -367,6 +379,7 @@ void Simulator::EX()
 		}
 		break;
 	case BNE:
+		predictor->update(regID.pc, op1 != op2);
 		if(op1 != op2 && !regID.pred)
 		{
 			pc = regID.pc + regID.imm;
@@ -379,6 +392,7 @@ void Simulator::EX()
 		}
 		break;
 	case BLT:
+		predictor->update(regID.pc, op1 < op2);
 		if(op1 < op2 && !regID.pred)
 		{
 			pc = regID.pc + regID.imm;
@@ -391,6 +405,7 @@ void Simulator::EX()
 		}
 		break;
 	case BGE:
+		predictor->update(regID.pc, op1 >= op2);
 		if(op1 >= op2 && !regID.pred)
 		{
 			pc = regID.pc + regID.imm;
@@ -403,6 +418,7 @@ void Simulator::EX()
 		}
 		break;
 	case BLTU:
+		predictor->update(regID.pc, (__uint32_t)op1 < (__uint32_t)op2);
 		if((__uint32_t)op1 < (__uint32_t)op2 && !regID.pred)
 		{
 			pc = regID.pc + regID.imm;
@@ -415,6 +431,7 @@ void Simulator::EX()
 		}
 		break;
 	case BGEU:
+		predictor->update(regID.pc, (__uint32_t)op1 >= (__uint32_t)op2);
 		if((__uint32_t)op1 >= (__uint32_t)op2 && !regID.pred)
 		{
 			pc = regID.pc + regID.imm;

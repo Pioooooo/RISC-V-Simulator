@@ -23,7 +23,7 @@ bool BranchPredictor::predict(__uint32_t pc)
 
 void BranchPredictor::update(__uint32_t pc, bool branch)
 {
-	__uint8_t x = hash(pc), cur = predBuf[x >> 2u] >> ((x & 3u) << 1u);
+	__uint8_t x = hash(pc), cur = (predBuf[x >> 2u] >> ((x & 3u) << 1u)) & 3u;
 	if(!(cur & 2u) == !branch)
 		success++;
 	switch(cur)
@@ -51,12 +51,12 @@ void BranchPredictor::update(__uint32_t pc, bool branch)
 	default:
 		break;
 	}
-	predBuf[x >> 2u] |= 3u << ((x & 3u) << 1u);
-	predBuf[x >> 2u] &= cur << ((x & 3u) << 1u);
+	predBuf[x >> 2u] &= ~(3u << ((x & 3u) << 1u));
+	predBuf[x >> 2u] |= cur << ((x & 3u) << 1u);
 }
 
 void BranchPredictor::print(FILE *file)
 {
-	fprintf(file, "total:%8d,success:%8d,success rate:%8f", total, success, (double)total / success);
+	fprintf(file, "total:%8d,success:%8d,success rate:%8f\n", total, success, (double)success / total);
 }
 

@@ -110,7 +110,7 @@ class Simulator
 		RISCV::RegId rd;
 		RISCV::Inst inst;
 		__int32_t rs1, rs2, imm, pc;
-		bool busy, pred;
+		bool busy, pred, stall;
 	} regID;
 	
 	struct datEX
