@@ -3,11 +3,12 @@ for file in $(ls -a data); do
 #		gcc data/${file%.*}.c -o std
 #		./std
 #		std=$?
+    printf "%s: " ${file%.*}
 		ans=$(./cmake-build-debug/RISC_V ./data/$file)
 #		if [[ $std != $ans ]]; then
 #			printf "%-20s %-4s %-4s\n" $file $std $ans
 #		fi
-    printf  "%-20s %s\n" $file $ans
+#    printf "%s\n" $ans
 	fi
 done
 #rm std
